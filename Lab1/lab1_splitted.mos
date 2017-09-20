@@ -1,0 +1,116 @@
+model ModelName
+uses "mmxprs"; !gain access to the Xpress-Optimizer solver
+setparam("XPRS_MAXTIME",-600)
+!sample declarations section
+declarations
+	
+	! Number of Nodes
+	Node = 1..8
+	
+	fmax:mpvar
+	
+	! Number of Delta (#laser = #photodiode per node)
+	Delta:integer
+
+	! Declaration of b_ij, it is 1 if there is link between
+	! node i and j otherwise it is 0
+	b_ij: array(Node,Node) of mpvar
+	
+	! Flow matrix passes from path between i to j
+	f_ij: array(Node,Node) of mpvar
+	
+	! Flow between s and d that passes from path between i and j
+	f_ij_sd: array(Node,Node,Node,Node) of mpvar
+	
+	! Traffic Matrix
+	TRAFFIC: array(Node,Node) of real
+	
+
+end-declarations
+Delta := 3
+
+
+setrandseed(15) ! Set a different seed for each run
+
+! Generate a matrix of Uniform[1,10] numbers
+forall(i,j in Node | i <> j) do
+	TRAFFIC(i,j):= 1+(random*(10-1))
+	
+end-do
+
+! Utility function
+ObjectiveFunction := fmax
+
+
+!Connectivity constraints
+
+! Variables
+forall( i , j in Node) b_ij(i,j) is_binary
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!
+!the flow can be splitted!
+!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+! is_semcont 0 To make sure that they are restricts to be zero or continuous 
+forall(i , j in Node) f_ij(i,j) is_semcont 0
+
+forall(i ,j,s ,d in Node) f_ij_sd(i,j,s,d) is_semcont 0
+
+!The # of input flow to node j is less than or equal to output flow of node i
+forall(i in Node) sum(j in Node) b_ij(i,j) <= Delta
+
+!The # of output flow of node i is less than or equal to input flow of node j
+forall(j in	Node) sum(i in Node) b_ij(i,j) <= Delta
+
+! The flow from i to j is less than or equal to maxmimum flow alowded on the link between i and j
+forall(i , j in Node | i<>j) f_ij(i,j) <= fmax
+
+! total traffic in equal to sumation of all the flows on edges between s and d in graph
+forall (i ,j in Node | i<>j) sum(s, d in Node) f_ij_sd(i,j,s,d) = f_ij(i,j)
+
+! The total flow entering to the S is Zero
+forall(s , d in Node | s<>d) sum(j in Node | j <> s) f_ij_sd(j,s,s,d) = 0
+
+! The Total flow exiting from D is Zero 
+forall(s , d in Node | s<>d) sum(j in Node | j <> d) f_ij_sd(d,j,s,d) = 0
+
+!the total traffic exiting from s entring to d is equal to tst
+forall(s , d in Node | s<>d) sum(j in Node| j <> s) f_ij_sd(s,j,s,d) =TRAFFIC(s,d)
+
+!the total traffic entering into d coming from s is equal to tst
+forall(s in Node, d in Node | s<>d) sum(j in Node| j <> d) f_ij_sd(j,d,s,d) =TRAFFIC(s,d)
+
+! The traffic flow can path only links that are existed
+forall(s ,d ,i ,j in Node |  i<>j and s<>d) f_ij_sd(i,j,s,d)<=b_ij(i,j)*TRAFFIC(s,d)
+! The total flow entering to node i is equal to the total flow exiting node i( it is transit)
+forall(s , d , i in Node | i<>s and i<>d and s<>d) sum(j in Node|j<>s and j<>i and j<>d) (f_ij_sd(i,j,s,d)-f_ij_sd(j,i,s,d))=0
+
+! From paper
+fmax >= 0
+forall(i , j in Node | i<>j) f_ij(i,j) >=0
+forall(s ,d,i,j in Node |  i<>j and s<>d) f_ij_sd(i,j,s,d)>=0
+
+!optimisation statement
+minimize(ObjectiveFunction)
+
+
+writeln("Begin running model")
+!...
+
+writeln("Traffic:")
+forall(i , j in Node) do 
+	writeln(i," - ", j, ": ", getsol(TRAFFIC(i,j)))
+end-do
+writeln("b_ij:")
+forall(i, j in Node) do 
+	writeln(i," - ", j, ": ", getsol(b_ij(i,j)))
+end-do
+writeln("f_ij:")
+forall(i , j in Node) do 
+	writeln("f (",i," - ", j, "): ", getsol(f_ij(i,j)))
+end-do
+writeln(getsol(fmax))
+	
+writeln("End running model")
+
+end-model
